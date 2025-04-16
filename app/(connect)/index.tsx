@@ -5,9 +5,6 @@ import BluetoothScanner from './BluetoothScanner';
 
 
 export default function ConnectScreen() {
-	const [url, setUrl] = useState('wss://');
-
-
 	return (
 		<BluetoothScanner />
 	);
