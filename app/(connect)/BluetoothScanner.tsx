@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { PermissionsAndroid, Platform, View, Text, Button, FlatList, TouchableOpacity, Alert } from 'react-native';
-import { BleManager, Device, Service } from 'react-native-ble-plx'; // Zaimportuj typ Device
+import { BleManager, Device } from 'react-native-ble-plx'; // Zaimportuj typ Device
 
 interface DeviceItemProps {
 	item: Device;
@@ -8,28 +8,17 @@ interface DeviceItemProps {
 
 // Heart Rate
 // 0x180D
-const DEVICE_SERVICE_UUID = '0000180D-0000-1000-8000-00805F9B34FB';
-const SVC_UUID = '0x180D'
-const CHAR_UUID = '0x2A37'
+const SVC_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b'
+const CHAR_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8'
 
-function getShortUUID(fullUUID: string): string | null {
-	// Konwertujemy na lowercase, usuwamy myślniki
-	const normalized = fullUUID.toLowerCase().replace(/-/g, '');
-
-	// Standardowe UUID SIG mają ten konkretny szablon
-	if (normalized.endsWith('00001000800000805f9b34fb')) {
-		// Wyciągnij pierwsze 4 bajty = short UUID
-		const shortPart = normalized.substring(0, 8);
-		const shortUUID = `0x${shortPart.substring(4)}`;
-		return shortUUID;
+function base64ToUint8Array(base64: string): Uint8Array {
+	const binaryString = atob(base64);
+	const len = binaryString.length;
+	const bytes = new Uint8Array(len);
+	for (let i = 0; i < len; i++) {
+		bytes[i] = binaryString.charCodeAt(i);
 	}
-
-	return null; // Niestandardowy UUID (pełny własny)
-}
-
-function isShortUUIDEqual(longUUID1: string, uuid2: string): boolean {
-	const uuid1 = getShortUUID(longUUID1);
-	return uuid1?.toLowerCase() === uuid2.toLowerCase();
+	return bytes;
 }
 
 export default function BluetoothScanner() {
@@ -37,6 +26,7 @@ export default function BluetoothScanner() {
 	const [scanning, setScanning] = useState(false);
 	const bleManager = new BleManager();
 	const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
+	const [data, setData] = useState<number>(0);
 
 	useEffect(() => {
 		const requestPermissions = async () => {
@@ -90,16 +80,6 @@ export default function BluetoothScanner() {
 		};
 	}, []);
 
-	const requestPermissions = async () => {
-		if (Platform.OS === 'android') {
-			await PermissionsAndroid.requestMultiple([
-				PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-				PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-				PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-			]);
-		}
-	};
-
 	const startScan = () => {
 		if (!scanning) {
 			if (connectedDevice) {
@@ -150,23 +130,41 @@ export default function BluetoothScanner() {
 			const services = await connectedDevice.services();
 
 			for (const service of services) {
-				if (!isShortUUIDEqual(service.uuid, SVC_UUID)) continue;
+				console.log(`🔧 Service UUID: ${service.uuid}`);
+				if (service.uuid !== SVC_UUID) continue;
 
-				console.log(`🔧 Service UUID: ${getShortUUID(service.uuid)}`);
 
 				const characteristics = await service.characteristics();
 
 				for (const char of characteristics) {
-					if (!isShortUUIDEqual(char.uuid, CHAR_UUID)) continue;
+					if (char.uuid !== CHAR_UUID) continue;
 
 					console.log(`  ↪️ Characteristic UUID: ${char.uuid}`);
-					console.log(`     DevID: ${getShortUUID(char.uuid)}`);
+					console.log(`     DevID: ${char.uuid}`);
 					console.log(`     Properties:`);
 					console.log(`       - Readable: ${char.isReadable}`);
 					console.log(`       - Writable With Response: ${char.isWritableWithResponse}`);
 					console.log(`       - Writable Without Response: ${char.isWritableWithoutResponse}`);
 					console.log(`       - Notifiable: ${char.isNotifiable}`);
 					console.log(`       - Indicatable: ${char.isIndicatable}`);
+
+					char.monitor((error, characteristic) => {
+						if (error) {
+							console.log('❌ Błąd podczas monitorowania charakterystyki:', error);
+							return;
+						}
+
+						if (characteristic?.value) {
+							// characteristic.value jest w base64, trzeba zdekodować
+							const uint8Array: Uint8Array = base64ToUint8Array(characteristic.value);
+							const a = uint8Array[1]
+							console.log('📥 Odczytano dane:', a);
+							setData(a)
+							{/* setData(uint8Array); */ }
+						}
+					});
+
+					return
 				}
 			}
 		} catch (error) {
@@ -211,6 +209,7 @@ export default function BluetoothScanner() {
 			<Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 15 }}>Skaner Urządzeń Bluetooth BLE</Text>
 			<Button title={scanning ? 'Skanowanie...' : 'Rozpocznij Skanowanie'} onPress={startScan} disabled={scanning} />
 			<Text className='text-white'>LEN: {devices.length}</Text>
+			<Text className='text-white'>DATA: {data}</Text>
 			{connectedDevice && (
 				<Button title='Info' onPress={() => inspectDevice(connectedDevice)} />
 			)}
